@@ -114,11 +114,11 @@ if __name__ == '__main__':
     df = pd.DataFrame()
     
     # Phase 1
-    path_phase_1 = './data/phase_1_v2/raw/'
-    participants_phase_1 = ['06', '07', '08', '09', '10', '11', '12', '14', '15', '17', '18', '20', '21', '22', '23', '24', '26', '27', '28', '29', '30']
+    path_phase_1 = f'../../data/phase_1_v2/raw/'
+    participants_phase_1 = ['06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '17', '18', '20', '21', '22', '23', '24', '26', '27', '28', '29', '30']
     
     print('\nImportando dados de performance dos participantes')
-    df_performance = pd.read_excel(f'./data/phase_1_v2/raw/performance data/WKL_fase1_PerformanceData_ERRORS.xlsx')
+    df_performance = pd.read_excel(f'../../data/phase_1_v2/raw/performance data/WKL_fase1_PerformanceData_ERRORS.xlsx')
     df_performance['Nº'] = df_performance['Nº'].ffill()
 
     for p in participants_phase_1:
@@ -148,4 +148,4 @@ if __name__ == '__main__':
 
     # Save CSV
     print('Salvando o dataset completo...')
-    df.to_csv('./data/processed/eda_normalizado_p1v3.csv')
+    df.to_csv('../../data/processed/eda_normalizado_p1v3.csv')
