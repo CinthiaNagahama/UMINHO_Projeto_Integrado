@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 
+from tqdm import tqdm
 import neurokit2 as nk
 
 # Time conversion
@@ -9,8 +10,8 @@ MS2MINUTE = 1.6667e-8
 MINUTE2MS = 6e7
 
 def import_participants_csv(path, participant):
-    df_eventos = pd.read_csv(f'./data/phase_2_v2/raw/S{participant}/S{participant}_events_tasks.csv', sep=";")
-    df_eda = pd.read_csv(f'./data/phase_2_v2/raw/S{participant}/S{participant}_EDA_tasks.csv', header=None, names=["Time", "EDA"])
+    df_eventos = pd.read_csv(f'{path}S{participant}/S{participant}_events_tasks.csv', sep=";")
+    df_eda = pd.read_csv(f'{path}S{participant}/S{participant}_EDA_tasks.csv', header=None, names=["Time", "EDA"])
     return df_eventos, df_eda
 
 def _get_code(df_eventos, time):
@@ -18,7 +19,10 @@ def _get_code(df_eventos, time):
     idx = np.where(np.logical_and(start <= time, end>=time))
     return code[idx][0] if (len(idx[0]) > 0) else None
 
-def prep_eventos(df_eventos, df_performance):
+def _is_end(values):
+    return [value.strip() in ('nan', 'end') for value in values]
+
+def prep_eventos(df_eventos):
     df_eventos['Label'] = df_eventos.apply(lambda row: f"B{df_eventos['Label'].iloc[row.name + 1][1:]}" if row['Label'] == 'Recovery' else row['Label'], axis = 1)
 
     df_eventos.rename({
@@ -30,14 +34,15 @@ def prep_eventos(df_eventos, df_performance):
         'Label': 'label',
         'Errors': 'errors'
     }, axis=1, inplace=True)
-    
+    df_eventos['start_time_min'] = [e if isinstance(e, float) == True else float(e.replace(',', '.')) for e in df_eventos.start_time_min]
+    df_eventos['end_time_min'] = [str(e) if isinstance(e, float) == True else str(e.replace(',', '.')) for e in df_eventos.end_time_min] 
     df_eventos['errors'] = [e if isinstance(e, float) == True else float(e.replace(',', '.')) for e in df_eventos.errors]
 
     diff_time = [float(t[0]) - t[1] for t in df_eventos[df_eventos['code'] == -1][['end_time_min', 'start_time_min']].iloc[:-1].values]
-    df_eventos.loc[df_eventos['end_time_min'].str.lower() == 'end', 'end_time_min'] = str(df_eventos['start_time_min'].iloc[-1] + np.mean(diff_time))    
+    df_eventos.loc[_is_end(df_eventos['end_time_min'].str.lower()), 'end_time_min'] = str(df_eventos['start_time_min'].iloc[-1] + np.mean(diff_time))  
     df_eventos['label'] = df_eventos['label'].str.strip()
-    df_eventos['start_time_ms'] = [float(t) * MINUTE2MS for t in df_eventos['start_time_min']]
-    df_eventos['end_time_ms'] = [float(t) * MINUTE2MS for t in df_eventos['end_time_min']]
+    df_eventos['start_time_ms'] = df_eventos['start_time_min'].apply(lambda t: float(t) * MINUTE2MS)
+    df_eventos['end_time_ms'] = df_eventos['end_time_min'].apply(lambda t: float(t) * MINUTE2MS)
     return df_eventos
 
 def gen_lbl2code_dict(df_eventos):
@@ -91,7 +96,6 @@ def prep_df_final(df_norm, norm_cols):
     df_final[norm_cols] = df_norm.groupby('code')[norm_cols].std()
     df_final.rename({n: n + '_std' for n in norm_cols}, inplace = True, axis = 1)
 
-    # df_final[['errors', 'errors_rate']] = df_norm.groupby('code')[['errors', 'errors_rate']].max()
     df_final[['errors']] = df_norm.groupby('code')[['errors']].max()
     df_final['event_duration_ms'] = df_norm.groupby('code')['Time'].agg(lambda x: x.iloc[-1] - x.iloc[0])
     df_final = df_final.reset_index()
@@ -117,18 +121,15 @@ if __name__ == '__main__':
     df = pd.DataFrame()
     
     # Phase 2
-    path_phase_2 = './data/phase_2/raw/'
-    participants_phase_2 = ['104', '105', '106', '107', '108', '109', '110', '111', '112', '113', '117', '119', '120', '121', '122', '123', '124', '125', '128', '129', '130', '131', '132', '133', '134']
-
-    print('\nImportando dados de performance dos participantes')
-    df_performance = pd.read_excel(f'./data/phase_2_v2/raw/Events_Errors_NASA_tasks_fase2.xlsx')
-
-    for p in participants_phase_2:
+    path_phase_2 = '../../../data/phase_2/raw/'
+    participants_phase_2 = ['101', '102', '104', '105', '106', '107', '108', '109', '110', '111', '112', '113', '115', '117', '119', '120', '121', '122', '123', '124', '125', '128', '129', '130', '131', '132', '133', '134']
+    
+    for p in tqdm(participants_phase_2):
         print(f'\nImportando dados do participante S{p}...')
         df_eventos, df_eda = import_participants_csv(path_phase_2, p)
 
         print('Preparando datasets...')
-        df_eventos = prep_eventos(df_eventos, df_performance)
+        df_eventos = prep_eventos(df_eventos)
         df_eda = prep_eda(df_eda, df_eventos)
 
         print('Criando tabelas de baselines e conditions...')
@@ -144,11 +145,10 @@ if __name__ == '__main__':
         df_final = prep_df_final(df_eda_norm, norm_cols)
         df_final['participant'] = f'S{p}'
         df_final['condition'] = [dict_conditions[c] for c in df_final['code']]
-        print([df_eventos[df_eventos['code'] == c]['secondary_task'].values[0].strip() for c in df_final['code']])
         df_final['secondary_task'] = [df_eventos[df_eventos['code'] == c]['secondary_task'].values[0].strip() for c in df_final['code']]
 
         df = pd.concat([df, df_final])
 
     # Save CSV
     print('Salvando o dataset completo...')
-    df.to_csv('./data/processed/eda_normalizado_p2v3.csv')
+    df.to_csv('../../../data/processed/eda_normalizado_p2v4.csv', index = False)

@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 
+from tqdm import tqdm
+
 import neurokit2 as nk
 
 # Time conversion
@@ -9,8 +11,8 @@ MS2MINUTE = 1.6667e-8
 MINUTE2MS = 6e7
 
 def import_participants_csv(path, participant):
-    df_eventos = pd.read_csv(path + 'events_S' + participant + '.csv')
-    df_ppg = pd.read_csv(path + 'S' + participant + '_PPG_tasks.csv')
+    df_eventos = pd.read_csv(f'{path}S{participant}/S{participant}_events_tasks.csv', sep = ';')
+    df_ppg = pd.read_csv(f'{path}S{participant}/S{participant}_PPG_tasks.csv')
     return df_eventos, df_ppg
 
 def _get_code(df_eventos, time):
@@ -20,19 +22,24 @@ def _get_code(df_eventos, time):
 
 def prep_eventos(df_eventos):
     df_eventos.rename({
-        'Biopac (min)': 'start_time_min', 
-        'Biopac-end(min)': 'end_time_min',
+        'ID': 'participant',
+        'Label': 'label',
+        'Start_min': 'start_time_min', 
+        'End_min': 'end_time_min',
         'Condition': 'condition',
-        'Secondary task': 'secondary_task',
+        'Secondary_task': 'secondary_task',
         'Code': 'code'
     }, axis=1, inplace=True)
-    
-    diff_time = [float(t[0]) - t[1] for t in df_eventos[df_eventos['code'] == 'Questionario'][['end_time_min', 'start_time_min']].iloc[:-1].values]
-    df_eventos.loc[df_eventos['end_time_min'] == 'End', 'end_time_min'] = df_eventos['start_time_min'].iloc[-1] + np.mean(diff_time)
-    df_eventos['label'] = df_eventos['label'].str.strip()
-    df_eventos['start_time_ms'] = [float(t) * MINUTE2MS for t in df_eventos['start_time_min']]
-    df_eventos['end_time_ms'] = [float(t) * MINUTE2MS for t in df_eventos['end_time_min']]
 
+    df_eventos['start_time_min'] = df_eventos['start_time_min'].apply(lambda p: float(p.replace(',', '.')))
+    df_eventos['end_time_min'] = df_eventos['end_time_min'].apply(lambda p: str(p).replace(',', '.'))
+
+    diff_time = [float(t[0]) - t[1] for t in df_eventos[df_eventos['code'] == -2][['end_time_min', 'start_time_min']].iloc[:-1].values]
+    df_eventos.loc[df_eventos['end_time_min'].str.lower() == 'nan', 'end_time_min'] = str(df_eventos['start_time_min'].iloc[-1] + np.mean(diff_time))
+    df_eventos['label'] = df_eventos['label'].str.strip()
+    df_eventos['start_time_ms'] = df_eventos['start_time_min'].apply(lambda t: float(t) * MINUTE2MS)
+    df_eventos['end_time_ms'] = df_eventos['end_time_min'].apply(lambda t: float(t) * MINUTE2MS)
+    
     return df_eventos
 
 def gen_lbl2code_dict(df_eventos):
@@ -163,22 +170,20 @@ def prep_df_final(df_norm, norm_cols):
 
 if __name__ == '__main__':
     dict_conditions = {
-        'C1': 'V1P1',
-        'C2': 'V1P2',
-        'C3': 'V2P1',
-        'C4': 'V2P2',
-        'C5': 'V3P1',
-        'C6': 'V3P2'
+        7: 'V1P1',
+        8: 'V1P2',
+        9: 'V2P1',
+        10: 'V2P2',
+        11: 'V3P1',
+        12: 'V3P2'
     }
-    
     df = pd.DataFrame()
     
     # Phase 1
-    path_phase_1 = './data/phase_1/raw/'
-    participants_phase_1 = ['06', '07', '08', '09', '10', '11', '12', '13','14', '15', '17', '18', '20', '21', '22', '23', '24', '26', '27', '28', '29', '30']
-    #participants_phase_1 = ['17']
+    path_phase_1 = f'../../../data/phase_1/raw/'
+    participants_phase_1 = ['06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '20', '21', '22', '23', '24', '25', '26', '27', '28', '29', '30']
     
-    for p in participants_phase_1:
+    for p in tqdm(participants_phase_1):
         print(f'\nImportando dados do participante S{p}...')
         df_eventos, df_ppg = import_participants_csv(path_phase_1, p)
 
@@ -207,4 +212,4 @@ if __name__ == '__main__':
     
     # Save CSV
     print('Salvando o dataset completo...')
-    df.to_csv('./data/processed/ppg_p1_v2.csv', index=False)
+    df.to_csv('../../../data/processed/ppg_p1_v4.csv', index=False)

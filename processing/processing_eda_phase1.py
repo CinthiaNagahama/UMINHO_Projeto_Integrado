@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 
+from tqdm import tqdm
+
 import neurokit2 as nk
 
 # Time conversion
@@ -9,7 +11,7 @@ MS2MINUTE = 1.6667e-8
 MINUTE2MS = 6e7
 
 def import_participants_csv(path, participant):
-    df_eventos = pd.read_csv(f'{path}S{participant}/events_S{participant}.csv')
+    df_eventos = pd.read_csv(f'{path}S{participant}/S{participant}_events_tasks.csv', sep = ';')
     df_eda = pd.read_csv(f'{path}S{participant}/S{participant}_EDA_tasks.csv')
     return df_eventos, df_eda
 
@@ -20,27 +22,31 @@ def _get_code(df_eventos, time):
 
 def prep_eventos(df_eventos, df_performance):
     df_eventos.rename({
-        'Biopac (min)': 'start_time_min', 
-        'Biopac-end(min)': 'end_time_min',
+        'ID': 'participant',
+        'Label': 'label',
+        'Start_min': 'start_time_min', 
+        'End_min': 'end_time_min',
         'Condition': 'condition',
-        'Secondary task': 'secondary_task',
+        'Secondary_task': 'secondary_task',
         'Code': 'code'
     }, axis=1, inplace=True)
-    
-    diff_time = [float(t[0]) - t[1] for t in df_eventos[df_eventos['code'] == 'Questionario'][['end_time_min', 'start_time_min']].iloc[:-1].values]
-    df_eventos.loc[df_eventos['end_time_min'].str.lower() == 'end', 'end_time_min'] = str(df_eventos['start_time_min'].iloc[-1] + np.mean(diff_time))
+    df_eventos['start_time_min'] = df_eventos['start_time_min'].apply(lambda p: float(p.replace(',', '.')))
+    df_eventos['end_time_min'] = df_eventos['end_time_min'].apply(lambda p: str(p).replace(',', '.'))
+
+    diff_time = [float(t[0]) - t[1] for t in df_eventos[df_eventos['code'] == -2][['end_time_min', 'start_time_min']].iloc[:-1].values]
+    df_eventos.loc[df_eventos['end_time_min'].str.lower() == 'nan', 'end_time_min'] = str(df_eventos['start_time_min'].iloc[-1] + np.mean(diff_time))
     df_eventos['label'] = df_eventos['label'].str.strip()
-    df_eventos['start_time_ms'] = [float(t) * MINUTE2MS for t in df_eventos['start_time_min']]
-    df_eventos['end_time_ms'] = [float(t) * MINUTE2MS for t in df_eventos['end_time_min']]
+    df_eventos['start_time_ms'] = df_eventos['start_time_min'].apply(lambda t: float(t) * MINUTE2MS)
+    df_eventos['end_time_ms'] = df_eventos['end_time_min'].apply(lambda t: float(t) * MINUTE2MS)
 
     df_aux = pd.merge(
         left=df_eventos, 
-        right=df_performance[['Nº', 'Sequence', 'Errors', 'Errors rate']], 
+        right=df_performance[['Nº', 'Sequence', 'Errors']], 
         how='left',
-        left_on=['user', 'condition'], 
+        left_on=['participant', 'condition'], 
         right_on=['Nº', 'Sequence']
     )
-    df_aux.rename({'Errors':'errors', 'Errors rate':'errors_rate'}, axis=1, inplace=True)
+    df_aux.rename({'Errors':'errors'}, axis=1, inplace=True)
     df_aux.drop(['Nº', 'Sequence'], axis=1, inplace=True)
     return df_aux
 
@@ -52,7 +58,7 @@ def prep_eda(df_eda, df_eventos):
     df_eda_processed = df_eda.join(df_eda_processed_nk)
     df_eda_processed = df_eda_processed.drop(['EDA', 'EDA_Raw'], axis = 1)
     df_eda_processed['label'] = df_eda_processed['Time'].apply(lambda t: _get_code(df_eventos, t))
-    df_eda_processed = pd.merge(left=df_eda_processed, right=df_eventos[['label', 'errors', 'errors_rate']], how='left', on='label')
+    df_eda_processed = pd.merge(left=df_eda_processed, right=df_eventos[['label', 'errors']], how='left', on='label')
     return df_eda_processed
 
 def get_baselines(df_eda):
@@ -95,7 +101,7 @@ def prep_df_final(df_norm, norm_cols):
     df_final[norm_cols] = df_norm.groupby('code')[norm_cols].std()
     df_final.rename({n: n + '_std' for n in norm_cols}, inplace = True, axis = 1)
 
-    df_final[['errors', 'errors_rate']] = df_norm.groupby('code')[['errors', 'errors_rate']].max()
+    df_final[['errors']] = df_norm.groupby('code')[['errors']].max()
     df_final['event_duration_ms'] = df_norm.groupby('code')['Time'].agg(lambda x: x.iloc[-1] - x.iloc[0])
     df_final = df_final.reset_index()
     return df_final
@@ -103,25 +109,24 @@ def prep_df_final(df_norm, norm_cols):
 
 if __name__ == '__main__':
     dict_conditions = {
-        'C1': 'V1P1',
-        'C2': 'V1P2',
-        'C3': 'V2P1',
-        'C4': 'V2P2',
-        'C5': 'V3P1',
-        'C6': 'V3P2'
+        7: 'V1P1',
+        8: 'V1P2',
+        9: 'V2P1',
+        10: 'V2P2',
+        11: 'V3P1',
+        12: 'V3P2'
     }
-    
     df = pd.DataFrame()
     
     # Phase 1
-    path_phase_1 = f'../../data/phase_1_v2/raw/'
-    participants_phase_1 = ['06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '17', '18', '20', '21', '22', '23', '24', '26', '27', '28', '29', '30']
+    path_phase_1 = f'../../../data/phase_1/raw/'
+    participants_phase_1 = ['06', '07', '08', '09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '20', '21', '22', '23', '24', '25', '26', '27', '28', '29', '30']
     
     print('\nImportando dados de performance dos participantes')
-    df_performance = pd.read_excel(f'../../data/phase_1_v2/raw/performance data/WKL_fase1_PerformanceData_ERRORS.xlsx')
+    df_performance = pd.read_excel(f'../../../data/phase_1/raw/performance data/WKL_fase1_PerformanceData_ERRORS.xlsx')
     df_performance['Nº'] = df_performance['Nº'].ffill()
 
-    for p in participants_phase_1:
+    for p in tqdm(participants_phase_1):
         print(f'\nImportando dados do participante S{p}...')
         df_eventos, df_eda = import_participants_csv(path_phase_1, p)
 
@@ -148,4 +153,4 @@ if __name__ == '__main__':
 
     # Save CSV
     print('Salvando o dataset completo...')
-    df.to_csv('../../data/processed/eda_normalizado_p1v3.csv')
+    df.to_csv('../../../data/processed/eda_normalizado_p1v4.csv', index=False)

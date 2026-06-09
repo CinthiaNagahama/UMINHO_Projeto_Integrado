@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 
+from tqdm import tqdm
 import neurokit2 as nk
 
 # Time conversion
@@ -9,14 +10,17 @@ MS2MINUTE = 1.6667e-8
 MINUTE2MS = 6e7
 
 def import_participants_csv(path, participant):
-    df_eventos = pd.read_csv(path + 'S' + participant + '_events_tasks.csv', sep = ';')
-    df_ppg = pd.read_csv(path + 'S' + participant + '_PPG_tasks.csv', header = None, names = ['Time', 'PPG'])
+    df_eventos = pd.read_csv(f'{path}S{participant}/S{participant}_events_tasks.csv', sep=";")
+    df_ppg = pd.read_csv(f'{path}S{participant}/S{participant}_PPG_tasks.csv', header = None, names = ['Time', 'PPG'])
     return df_eventos, df_ppg
 
 def _get_code(df_eventos, time):
     code, start, end = df_eventos["label"].values, df_eventos["start_time_ms"].values, df_eventos["end_time_ms"].values
     idx = np.where(np.logical_and(start <= time, end>=time))
     return code[idx][0] if (len(idx[0]) > 0) else None
+
+def _is_end(values):
+    return [value.strip() in ('nan', 'end') for value in values]
 
 def prep_eventos(df_eventos):
     df_eventos['Label'] = df_eventos.apply(lambda row: f"B{df_eventos['Label'].iloc[row.name + 1][1:]}" if row['Label'] == 'Recovery' else row['Label'], axis = 1)
@@ -29,12 +33,14 @@ def prep_eventos(df_eventos):
         'Code': 'code',
         'Label': 'label'
     }, axis=1, inplace=True)
-    
+    df_eventos['start_time_min'] = [e if isinstance(e, float) else float(e.replace(',', '.')) for e in df_eventos.start_time_min]
+    df_eventos['end_time_min'] = [str(e) if isinstance(e, float) else str(e.replace(',', '.')) for e in df_eventos.end_time_min] 
+        
     diff_time = [float(t[0]) - t[1] for t in df_eventos[df_eventos['code'] == -1][['end_time_min', 'start_time_min']].iloc[:-1].values]
-    df_eventos.loc[df_eventos['end_time_min'].str.strip().str.lower() == 'end', 'end_time_min'] = df_eventos['start_time_min'].iloc[-1] + np.mean(diff_time)
+    df_eventos.loc[_is_end(df_eventos['end_time_min'].str.lower()), 'end_time_min'] = str(df_eventos['start_time_min'].iloc[-1] + np.mean(diff_time))
     df_eventos['label'] = df_eventos['label'].str.strip()
-    df_eventos['start_time_ms'] = [float(t) * MINUTE2MS for t in df_eventos['start_time_min']]
-    df_eventos['end_time_ms'] = [float(t) * MINUTE2MS for t in df_eventos['end_time_min']]
+    df_eventos['start_time_ms'] = df_eventos['start_time_min'].apply(lambda t: float(t) * MINUTE2MS)
+    df_eventos['end_time_ms'] = df_eventos['end_time_min'].apply(lambda t: float(t) * MINUTE2MS)
 
     return df_eventos
 
@@ -183,11 +189,10 @@ if __name__ == '__main__':
     df = pd.DataFrame()
     
     # Phase 2
-    path_phase_2 = './data/phase_2/raw/'
-    participants_phase_2 = ['104', '105', '106', '107', '108', '109', '110', '111', '112', '113', '117', '119', '120', '121', '122', '123', '124', '125', '128', '129', '130', '131', '132', '133', '134']
-    #participants_phase_2 = ['125']
-                            
-    for p in participants_phase_2:
+    path_phase_2 = '../../../data/phase_2/raw/'
+        participants_phase_2 = ['101', '102', '104', '105', '106', '107', '108', '109', '110', '111', '112', '113', '115', '117', '119', '120', '121', '122', '123', '124', '125', '128', '129', '130', '131', '132', '133', '134']
+                           
+    for p in tqdm(participants_phase_2):
         print(f'\nImportando dados do participante S{p}...')
         df_eventos, df_ppg = import_participants_csv(path_phase_2, p)
 
@@ -217,4 +222,4 @@ if __name__ == '__main__':
    
     # Save CSV
     print('Salvando o dataset completo...')
-    df.to_csv('./data/processed/ppg_p2_v2.csv', index=False)
+    df.to_csv('../../../data/processed/ppg_p2_v4.csv', index=False)
